@@ -1,0 +1,22 @@
+# Logs
+logs
+*.log
+npm-debug.log*
+
+# Runtime data
+node_modules/
+uploads/
+bin/
+
+# OS files
+.DS_Store
+
+# Local media and transcripts
+*.mov
+*.mp4
+*.mp3
+*.wav
+*_transcript.md
+
+# Local configuration
+.env

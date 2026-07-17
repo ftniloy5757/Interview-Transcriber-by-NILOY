@@ -1,0 +1,14 @@
+{
+  "name": "niloy-interview-transcriber",
+  "version": "1.0.0",
+  "description": "Local web application to transcribe interviews and label speakers using Gemini API",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "@google/generative-ai": "^0.21.0",
+    "express": "^4.19.2",
+    "multer": "^1.4.5-lts.1"
+  }
+}

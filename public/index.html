@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>NILOY's Interview Transcriber</title>
+  <!-- Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <!-- Stylesheet -->
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="app-container">
+    <!-- Header -->
+    <header class="app-header">
+      <div class="logo-area">
+        <span class="logo-icon">🎙️</span>
+        <h1>NILOY's Interview Transcriber</h1>
+      </div>
+      <p class="tagline">Accurate Bangla-English Interview Transcription & Speaker Diarization using Gemini AI</p>
+    </header>
+
+    <!-- Main Grid -->
+    <div class="app-grid">
+      
+      <!-- Left Column: Controls & Settings -->
+      <aside class="control-panel">
+        
+        <!-- Section 1: API Configuration -->
+        <section class="card settings-card">
+          <h2>1. Gemini Configuration</h2>
+          <div class="form-group">
+            <label for="apiKey">Gemini API Key</label>
+            <div class="input-password-wrapper">
+              <input type="password" id="apiKey" placeholder="Enter your GEMINI_API_KEY" autocomplete="off">
+              <button type="button" id="toggleApiKey" class="btn-icon">👁️</button>
+            </div>
+            <p class="help-text">Your key is stored securely in your browser's local storage.</p>
+          </div>
+          
+          <div class="form-row">
+            <div class="form-group flex-1">
+              <label for="modelSelect">Gemini Model</label>
+              <select id="modelSelect">
+                <option value="gemini-3.5-flash" selected>Gemini 3.5 Flash (Recommended)</option>
+                <option value="gemini-2.5-flash">Gemini 2.5 Flash</option>
+                <option value="gemini-3.5-pro">Gemini 3.5 Pro</option>
+                <option value="gemini-2.5-pro">Gemini 2.5 Pro</option>
+              </select>
+            </div>
+            <div class="form-group flex-1">
+              <label for="speakerCount">Speaker Count</label>
+              <input type="number" id="speakerCount" min="1" max="5" value="3">
+            </div>
+          </div>
+        </section>
+
+        <!-- Section 2: Input Media Selection -->
+        <section class="card media-card">
+          <h2>2. Interview Recording</h2>
+          <div class="upload-zone" id="dropZone">
+            <input type="file" id="fileUploadInput" accept="video/*,audio/*" style="display: none;">
+            <span class="upload-icon">📁</span>
+            <p>Drag & drop interview recording or <span class="browse-link">browse files</span></p>
+            <p class="file-info" id="selectedFileInfo"></p>
+          </div>
+        </section>
+
+        <!-- Section 3: Reference Questionnaire -->
+        <section class="card guide-card">
+          <h2>3. Interview Questionnaire</h2>
+          <div class="form-group">
+            <div class="flex-row-between">
+              <label class="checkbox-container">
+                <input type="checkbox" id="useGuide" checked>
+                <span class="checkmark"></span>
+                Use questionnaire context
+              </label>
+            </div>
+            
+            <div id="guideConfigSection" class="nested-section">
+              <!-- Upload guide directly from user local machine -->
+              <div class="upload-guide-wrapper">
+                <input type="file" id="guideUploadInput" accept=".md,.txt" style="display: none;">
+                <button type="button" id="uploadGuideBtn" class="btn btn-secondary btn-full">📂 Upload Questionnaire (.md / .txt)</button>
+                <p class="file-info" id="guideFileInfo" style="margin-top:0.25rem; font-size:0.75rem; text-align:center;"></p>
+              </div>
+              
+              <div class="textarea-wrapper">
+                <label for="guideContent">Questionnaire Text (Optional but recommended)</label>
+                <textarea id="guideContent" placeholder="Upload or paste interview guide/questionnaire content here..."></textarea>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- Start Button -->
+        <button type="button" id="startBtn" class="btn btn-primary btn-large">🚀 Start Transcription</button>
+        
+      </aside>
+
+      <!-- Right Column: Results & Editor -->
+      <main class="output-panel">
+        
+        <!-- Processing State Card -->
+        <section class="card progress-card hidden" id="progressCard">
+          <h2>Transcription Progress</h2>
+          <div class="progress-bar-container">
+            <div class="progress-bar-fill" id="progressBar"></div>
+          </div>
+          <div class="progress-details">
+            <span class="status-badge" id="statusBadge">Extracting</span>
+            <span class="progress-percent" id="progressPercent">0%</span>
+          </div>
+          <p class="status-msg" id="statusMessage">Extracting audio track from video...</p>
+        </section>
+
+        <!-- Output Editor Card -->
+        <section class="card editor-card" id="editorCard">
+          <div class="editor-header">
+            <h2>Transcript Editor</h2>
+            <div class="editor-actions">
+              <button id="saveWorkspaceBtn" class="btn btn-secondary hidden">💾 Save in Workspace</button>
+              <button id="downloadBtn" class="btn btn-primary hidden">⬇️ Download Transcript</button>
+            </div>
+          </div>
+
+          <div class="editor-content-wrapper">
+            <!-- Initial Empty State -->
+            <div class="empty-state" id="emptyState">
+              <span class="empty-icon">📝</span>
+              <h3>No Transcript Loaded</h3>
+              <p>Configure settings and click "Start Transcription" to process your interview recordings.</p>
+            </div>
+
+            <!-- Editor Grid: Left Text Area, Right Speaker Mapper -->
+            <div class="editor-grid hidden" id="editorGrid">
+              <div class="text-editor-container">
+                <textarea id="transcriptTextarea" spellcheck="false"></textarea>
+              </div>
+              
+              <!-- Speaker Renaming Sidebar -->
+              <aside class="speaker-sidebar">
+                <h3>👥 Speaker Labels</h3>
+                <p class="sidebar-help">Define actual names for identified speakers to update the transcript.</p>
+                <div id="speakerInputsContainer">
+                  <!-- Generated dynamically -->
+                </div>
+                <button type="button" id="applySpeakerNamesBtn" class="btn btn-secondary btn-full">Apply Names to Transcript</button>
+              </aside>
+            </div>
+          </div>
+        </section>
+
+      </main>
+    </div>
+  </div>
+
+  <!-- Notification Toast -->
+  <div id="toast" class="toast hidden"></div>
+
+  <script src="app.js"></script>
+</body>
+</html>
