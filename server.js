@@ -102,7 +102,7 @@ app.post('/api/transcribe', (req, res) => {
 
     const filePath = req.file.path;
     const originalName = req.file.originalname;
-    const modelName = req.body.model || 'gemini-2.0-flash';
+    const modelName = req.body.model || 'gemini-2.5-flash';
     const speakerCount = parseInt(req.body.speakerCount) || 3;
     const guideContent = req.body.guideContent || '';
 
