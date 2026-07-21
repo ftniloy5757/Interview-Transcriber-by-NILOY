@@ -1,6 +1,15 @@
 const dns = require('dns');
 dns.setDefaultResultOrder('ipv4first');
 
+const { setGlobalDispatcher, Agent } = require('undici');
+
+setGlobalDispatcher(new Agent({
+  headersTimeout: 600000, // 10 minutes
+  bodyTimeout: 600000,    // 10 minutes
+  keepAliveTimeout: 60000,
+  connections: 20,
+}));
+
 const express = require('express');
 const multer = require('multer');
 const path = require('path');
@@ -193,7 +202,7 @@ Instructions:
             }
           },
           { text: prompt },
-        ]);
+        ], { timeout: 600000 });
 
         const transcriptText = result.response.text();
 
