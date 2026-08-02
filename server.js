@@ -201,16 +201,15 @@ app.post('/api/transcribe', (req, res) => {
         const userModels = await getAvailableModels(apiKey);
         const userModelIds = userModels.map(m => m.id);
 
-        // Build priority candidate list
+        // Build priority candidate list (prioritize gemini-1.5-flash which has free tier quota)
         const candidateModels = [
           modelName,
+          'gemini-1.5-flash',
+          'gemini-1.5-flash-8b',
+          'gemini-1.5-pro',
           ...userModelIds.filter(m => m.includes('flash')),
           ...userModelIds,
-          'gemini-2.0-flash',
-          'gemini-1.5-flash-latest',
-          'gemini-1.5-flash-8b',
-          'gemini-1.5-pro-latest',
-          'gemini-1.5-flash'
+          'gemini-2.0-flash'
         ];
 
         const uniqueCandidates = [...new Set(candidateModels.filter(Boolean))];
@@ -266,10 +265,20 @@ Instructions:
             console.error(`Model ${candidate} failed:`, err.message);
             lastError = err;
             const errStr = err.message.toLowerCase();
-            if (!errStr.includes('404') && !errStr.includes('not found') && !errStr.includes('no longer available')) {
-              // If failure is not due to 404/model name issue, throw immediately
+            const isQuotaOrNotFound = 
+              errStr.includes('404') || 
+              errStr.includes('429') || 
+              errStr.includes('not found') || 
+              errStr.includes('no longer available') || 
+              errStr.includes('quota') || 
+              errStr.includes('limit: 0') || 
+              errStr.includes('rate limit');
+
+            if (!isQuotaOrNotFound) {
+              // If failure is an invalid API key, auth, or permission error, throw immediately
               throw err;
             }
+            console.log(`Model ${candidate} hit quota/404 (${err.message}). Trying next candidate...`);
           }
         }
 
