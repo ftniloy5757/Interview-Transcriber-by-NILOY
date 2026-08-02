@@ -68,7 +68,7 @@ document.addEventListener('DOMContentLoaded', () => {
           data.models.forEach((m, idx) => {
             const opt = document.createElement('option');
             opt.value = m.id;
-            opt.textContent = `${m.displayName} (${m.id})`;
+            opt.textContent = m.displayName || m.id;
             if (m.id === currentVal || idx === 0) {
               opt.selected = true;
             }
@@ -186,7 +186,7 @@ document.addEventListener('DOMContentLoaded', () => {
       return;
     }
 
-    const speakerCount = parseInt(speakerCountInput.value) || 3;
+    const speakerCount = parseInt(speakerCountInput.value) || 2;
     let model = modelSelect.value;
     if (model === 'custom') {
       model = (customModelInput && customModelInput.value.trim()) ? customModelInput.value.trim() : 'gemini-1.5-flash';
