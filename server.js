@@ -74,6 +74,36 @@ function extractAudio(inputPath, outputPath) {
   });
 }
 
+// Helper: Fetch available models dynamically for given API key
+async function getAvailableModels(apiKey) {
+  try {
+    const url = `https://generativelanguage.googleapis.com/v1beta/models?key=${encodeURIComponent(apiKey)}`;
+    const res = await fetch(url);
+    if (!res.ok) return [];
+    const data = await res.json();
+    if (!data.models || !Array.isArray(data.models)) return [];
+    return data.models
+      .filter(m => m.supportedGenerationMethods && m.supportedGenerationMethods.includes('generateContent'))
+      .map(m => ({
+        id: m.name.replace(/^models\//, ''),
+        displayName: m.displayName || m.name.replace(/^models\//, '')
+      }));
+  } catch (err) {
+    console.error('Error fetching models list:', err);
+    return [];
+  }
+}
+
+// Endpoint: Fetch available models for user's API key
+app.get('/api/models', async (req, res) => {
+  const apiKey = req.headers['x-api-key'];
+  if (!apiKey) {
+    return res.status(400).json({ error: 'Gemini API Key is required.' });
+  }
+  const models = await getAvailableModels(apiKey);
+  res.json({ models });
+});
+
 // Endpoint: Get task status
 app.get('/api/status/:taskId', (req, res) => {
   const { taskId } = req.params;
@@ -164,14 +194,26 @@ app.post('/api/transcribe', (req, res) => {
 
         updateTask(taskId, 'transcribing', 80, 'Transcribing and labeling speakers using Gemini AI...');
 
-        // Step 3: Call the model for transcription
+        // Step 3: Call the model for transcription with fallback support
         const genAI = new GoogleGenerativeAI(apiKey);
         
-        // Request options with a 10-minute timeout for large transcriptions
-        const model = genAI.getGenerativeModel({ 
-          model: modelName,
-          requestOptions: { timeout: 600000 } 
-        });
+        // Dynamically fetch supported models for this API Key
+        const userModels = await getAvailableModels(apiKey);
+        const userModelIds = userModels.map(m => m.id);
+
+        // Build priority candidate list
+        const candidateModels = [
+          modelName,
+          ...userModelIds.filter(m => m.includes('flash')),
+          ...userModelIds,
+          'gemini-2.0-flash',
+          'gemini-1.5-flash-latest',
+          'gemini-1.5-flash-8b',
+          'gemini-1.5-pro-latest',
+          'gemini-1.5-flash'
+        ];
+
+        const uniqueCandidates = [...new Set(candidateModels.filter(Boolean))];
 
         let prompt = `You are an expert transcriber. Your task is to transcribe the provided audio recording in native Bangla.
 The audio consists of a conversation with exactly ${speakerCount} speakers.
@@ -194,15 +236,46 @@ Instructions:
 6. Make sure to identify and label all ${speakerCount} speakers properly throughout the entire duration of the audio.
 `;
 
-        const result = await model.generateContent([
-          {
-            fileData: {
-              fileUri: tempUploadedFile.uri,
-              mimeType: tempUploadedFile.mimeType
+        let result = null;
+        let lastError = null;
+
+        for (const candidate of uniqueCandidates) {
+          try {
+            updateTask(taskId, 'transcribing', 80, `Transcribing with model (${candidate})...`);
+            console.log(`Attempting transcription with model: ${candidate}`);
+            const model = genAI.getGenerativeModel({ 
+              model: candidate,
+              requestOptions: { timeout: 600000 } 
+            });
+
+            result = await model.generateContent([
+              {
+                fileData: {
+                  fileUri: tempUploadedFile.uri,
+                  mimeType: tempUploadedFile.mimeType
+                }
+              },
+              { text: prompt },
+            ], { timeout: 600000 });
+
+            if (result && result.response) {
+              console.log(`Successfully generated content using model: ${candidate}`);
+              break;
             }
-          },
-          { text: prompt },
-        ], { timeout: 600000 });
+          } catch (err) {
+            console.error(`Model ${candidate} failed:`, err.message);
+            lastError = err;
+            const errStr = err.message.toLowerCase();
+            if (!errStr.includes('404') && !errStr.includes('not found') && !errStr.includes('no longer available')) {
+              // If failure is not due to 404/model name issue, throw immediately
+              throw err;
+            }
+          }
+        }
+
+        if (!result) {
+          throw lastError || new Error('All Gemini model candidates failed to transcribe.');
+        }
 
         const transcriptText = result.response.text();
 

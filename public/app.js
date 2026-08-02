@@ -54,15 +54,54 @@ document.addEventListener('DOMContentLoaded', () => {
   let pollInterval = null;
   let originalFileBasename = 'transcript';
 
+  async function loadModelsForApiKey(key) {
+    if (!key) return;
+    try {
+      const res = await fetch('/api/models', {
+        headers: { 'x-api-key': key }
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.models && data.models.length > 0) {
+          const currentVal = modelSelect.value;
+          modelSelect.innerHTML = '';
+          data.models.forEach((m, idx) => {
+            const opt = document.createElement('option');
+            opt.value = m.id;
+            opt.textContent = `${m.displayName} (${m.id})`;
+            if (m.id === currentVal || idx === 0) {
+              opt.selected = true;
+            }
+            modelSelect.appendChild(opt);
+          });
+          const customOpt = document.createElement('option');
+          customOpt.value = 'custom';
+          customOpt.textContent = 'Custom Model Name...';
+          if (currentVal === 'custom') customOpt.selected = true;
+          modelSelect.appendChild(customOpt);
+        }
+      }
+    } catch (err) {
+      console.error('Failed to auto-fetch models:', err);
+    }
+  }
+
   // 1. Initialize API Key from LocalStorage
   const savedApiKey = localStorage.getItem('gemini_api_key');
   if (savedApiKey) {
     apiKeyInput.value = savedApiKey;
+    loadModelsForApiKey(savedApiKey);
   }
 
   // Save API key on change
   apiKeyInput.addEventListener('input', () => {
-    localStorage.setItem('gemini_api_key', apiKeyInput.value.trim());
+    const val = apiKeyInput.value.trim();
+    localStorage.setItem('gemini_api_key', val);
+  });
+
+  apiKeyInput.addEventListener('change', () => {
+    const val = apiKeyInput.value.trim();
+    if (val) loadModelsForApiKey(val);
   });
 
   // Toggle API key visibility
