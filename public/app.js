@@ -3,7 +3,19 @@ document.addEventListener('DOMContentLoaded', () => {
   const apiKeyInput = document.getElementById('apiKey');
   const toggleApiKeyBtn = document.getElementById('toggleApiKey');
   const modelSelect = document.getElementById('modelSelect');
+  const customModelInput = document.getElementById('customModelInput');
   const speakerCountInput = document.getElementById('speakerCount');
+  
+  if (modelSelect && customModelInput) {
+    modelSelect.addEventListener('change', () => {
+      if (modelSelect.value === 'custom') {
+        customModelInput.style.display = 'block';
+        customModelInput.focus();
+      } else {
+        customModelInput.style.display = 'none';
+      }
+    });
+  }
   
   const dropZone = document.getElementById('dropZone');
   const fileUploadInput = document.getElementById('fileUploadInput');
@@ -136,7 +148,10 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     const speakerCount = parseInt(speakerCountInput.value) || 3;
-    const model = modelSelect.value;
+    let model = modelSelect.value;
+    if (model === 'custom') {
+      model = (customModelInput && customModelInput.value.trim()) ? customModelInput.value.trim() : 'gemini-1.5-flash';
+    }
     const useGuide = useGuideCheckbox.checked;
     const guideContent = useGuide ? guideContentTextarea.value.trim() : '';
 
