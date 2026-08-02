@@ -83,7 +83,12 @@ async function getAvailableModels(apiKey) {
     const data = await res.json();
     if (!data.models || !Array.isArray(data.models)) return [];
     return data.models
-      .filter(m => m.supportedGenerationMethods && m.supportedGenerationMethods.includes('generateContent'))
+      .filter(m => {
+        if (!m.supportedGenerationMethods || !m.supportedGenerationMethods.includes('generateContent')) return false;
+        const name = m.name.toLowerCase();
+        if (name.includes('tts') || name.includes('embed') || name.includes('imagen') || name.includes('bison') || name.includes('realtime')) return false;
+        return true;
+      })
       .map(m => ({
         id: m.name.replace(/^models\//, ''),
         displayName: m.displayName || m.name.replace(/^models\//, '')
@@ -265,20 +270,25 @@ Instructions:
             console.error(`Model ${candidate} failed:`, err.message);
             lastError = err;
             const errStr = err.message.toLowerCase();
-            const isQuotaOrNotFound = 
+            const isTryNextError = 
               errStr.includes('404') || 
               errStr.includes('429') || 
+              errStr.includes('400') || 
               errStr.includes('not found') || 
               errStr.includes('no longer available') || 
               errStr.includes('quota') || 
               errStr.includes('limit: 0') || 
-              errStr.includes('rate limit');
+              errStr.includes('rate limit') || 
+              errStr.includes('modality') || 
+              errStr.includes('not enabled') || 
+              errStr.includes('not supported') || 
+              errStr.includes('invalid argument');
 
-            if (!isQuotaOrNotFound) {
+            if (!isTryNextError) {
               // If failure is an invalid API key, auth, or permission error, throw immediately
               throw err;
             }
-            console.log(`Model ${candidate} hit quota/404 (${err.message}). Trying next candidate...`);
+            console.log(`Model ${candidate} skipped (${err.message}). Trying next candidate...`);
           }
         }
 
