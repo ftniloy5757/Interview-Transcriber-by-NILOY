@@ -65,15 +65,20 @@ document.addEventListener('DOMContentLoaded', () => {
         if (data.models && data.models.length > 0) {
           const currentVal = modelSelect.value;
           modelSelect.innerHTML = '';
-          data.models.forEach((m, idx) => {
+          let hasMatched = false;
+          data.models.forEach((m) => {
             const opt = document.createElement('option');
             opt.value = m.id;
             opt.textContent = m.displayName || m.id;
-            if (m.id === currentVal || idx === 0) {
+            if (m.id === currentVal) {
               opt.selected = true;
+              hasMatched = true;
             }
             modelSelect.appendChild(opt);
           });
+          if (!hasMatched && currentVal !== 'custom' && modelSelect.options.length > 0) {
+            modelSelect.options[0].selected = true;
+          }
           const customOpt = document.createElement('option');
           customOpt.value = 'custom';
           customOpt.textContent = 'Custom Model Name...';

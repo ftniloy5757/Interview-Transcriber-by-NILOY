@@ -82,7 +82,17 @@ async function getAvailableModels(apiKey) {
     if (!res.ok) return [];
     const data = await res.json();
     if (!data.models || !Array.isArray(data.models)) return [];
-    return data.models
+
+    const preferredOrder = [
+      'gemini-1.5-flash',
+      'gemini-2.0-flash',
+      'gemini-1.5-pro',
+      'gemini-2.0-flash-lite',
+      'gemini-1.5-flash-8b',
+      'gemini-flash-latest'
+    ];
+
+    const models = data.models
       .filter(m => {
         if (!m.supportedGenerationMethods || !m.supportedGenerationMethods.includes('generateContent')) return false;
         const name = m.name.toLowerCase();
@@ -93,6 +103,17 @@ async function getAvailableModels(apiKey) {
         id: m.name.replace(/^models\//, ''),
         displayName: m.displayName || m.name.replace(/^models\//, '')
       }));
+
+    models.sort((a, b) => {
+      const idxA = preferredOrder.indexOf(a.id);
+      const idxB = preferredOrder.indexOf(b.id);
+      if (idxA !== -1 && idxB !== -1) return idxA - idxB;
+      if (idxA !== -1) return -1;
+      if (idxB !== -1) return 1;
+      return a.id.localeCompare(b.id);
+    });
+
+    return models;
   } catch (err) {
     console.error('Error fetching models list:', err);
     return [];
@@ -206,15 +227,16 @@ app.post('/api/transcribe', (req, res) => {
         const userModels = await getAvailableModels(apiKey);
         const userModelIds = userModels.map(m => m.id);
 
-        // Build priority candidate list (prioritize gemini-1.5-flash which has free tier quota)
+        // Build priority candidate list
         const candidateModels = [
           modelName,
           'gemini-1.5-flash',
+          'gemini-2.0-flash',
           'gemini-1.5-flash-8b',
           'gemini-1.5-pro',
+          'gemini-2.0-flash-lite',
           ...userModelIds.filter(m => m.includes('flash')),
           ...userModelIds,
-          'gemini-2.0-flash'
         ];
 
         const uniqueCandidates = [...new Set(candidateModels.filter(Boolean))];
@@ -243,53 +265,81 @@ Instructions:
         let result = null;
         let lastError = null;
 
+        function isAuthError(err) {
+          if (!err) return false;
+          const msg = (err.message || '').toLowerCase();
+          const status = err.status || err.statusCode;
+          return (
+            status === 401 ||
+            status === 403 ||
+            msg.includes('api_key_invalid') ||
+            msg.includes('api key not valid') ||
+            msg.includes('unauthenticated') ||
+            msg.includes('permission_denied') ||
+            msg.includes('permissiondenied') ||
+            msg.includes('invalid api key')
+          );
+        }
+
         for (const candidate of uniqueCandidates) {
-          try {
-            updateTask(taskId, 'transcribing', 80, `Transcribing with model (${candidate})...`);
-            console.log(`Attempting transcription with model: ${candidate}`);
-            const model = genAI.getGenerativeModel({ 
-              model: candidate,
-              requestOptions: { timeout: 600000 } 
-            });
+          let modelAttempts = 0;
+          const maxModelAttempts = 2;
+          let candidateSuccess = false;
 
-            result = await model.generateContent([
-              {
-                fileData: {
-                  fileUri: tempUploadedFile.uri,
-                  mimeType: tempUploadedFile.mimeType
-                }
-              },
-              { text: prompt },
-            ], { timeout: 600000 });
+          while (modelAttempts < maxModelAttempts) {
+            modelAttempts++;
+            try {
+              const attemptLabel = modelAttempts > 1 ? ` (Retry ${modelAttempts}/${maxModelAttempts})` : '';
+              updateTask(taskId, 'transcribing', 80, `Transcribing with model (${candidate})${attemptLabel}...`);
+              console.log(`Attempting transcription with model: ${candidate} (Attempt ${modelAttempts})`);
 
-            if (result && result.response) {
-              console.log(`Successfully generated content using model: ${candidate}`);
-              break;
+              const model = genAI.getGenerativeModel({ 
+                model: candidate,
+                requestOptions: { timeout: 600000 } 
+              });
+
+              result = await model.generateContent([
+                {
+                  fileData: {
+                    fileUri: tempUploadedFile.uri,
+                    mimeType: tempUploadedFile.mimeType
+                  }
+                },
+                { text: prompt },
+              ], { timeout: 600000 });
+
+              if (result && result.response) {
+                console.log(`Successfully generated content using model: ${candidate}`);
+                candidateSuccess = true;
+                break;
+              }
+            } catch (err) {
+              console.error(`Model ${candidate} attempt ${modelAttempts} failed:`, err.message);
+              lastError = err;
+
+              if (isAuthError(err)) {
+                throw new Error(`Authentication Failed: ${err.message}. Please check your Gemini API Key.`);
+              }
+
+              const errStr = err.message.toLowerCase();
+              const isTransient = errStr.includes('503') || errStr.includes('service unavailable') || errStr.includes('high demand') || errStr.includes('overloaded') || errStr.includes('500') || errStr.includes('502') || errStr.includes('504') || errStr.includes('429') || errStr.includes('resource_exhausted');
+
+              if (isTransient && modelAttempts < maxModelAttempts) {
+                const backoffMs = modelAttempts * 3000;
+                updateTask(taskId, 'transcribing', 80, `Model (${candidate}) busy (503/High Demand). Retrying in ${backoffMs/1000}s...`);
+                console.log(`Waiting ${backoffMs}ms before retrying ${candidate}...`);
+                await new Promise(r => setTimeout(r, backoffMs));
+              } else {
+                break;
+              }
             }
-          } catch (err) {
-            console.error(`Model ${candidate} failed:`, err.message);
-            lastError = err;
-            const errStr = err.message.toLowerCase();
-            const isTryNextError = 
-              errStr.includes('404') || 
-              errStr.includes('429') || 
-              errStr.includes('400') || 
-              errStr.includes('not found') || 
-              errStr.includes('no longer available') || 
-              errStr.includes('quota') || 
-              errStr.includes('limit: 0') || 
-              errStr.includes('rate limit') || 
-              errStr.includes('modality') || 
-              errStr.includes('not enabled') || 
-              errStr.includes('not supported') || 
-              errStr.includes('invalid argument');
-
-            if (!isTryNextError) {
-              // If failure is an invalid API key, auth, or permission error, throw immediately
-              throw err;
-            }
-            console.log(`Model ${candidate} skipped (${err.message}). Trying next candidate...`);
           }
+
+          if (candidateSuccess) {
+            break;
+          }
+
+          console.log(`Model ${candidate} failed. Retrying with next available model candidate...`);
         }
 
         if (!result) {
