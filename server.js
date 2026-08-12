@@ -220,14 +220,18 @@ app.post('/api/transcribe', (req, res) => {
 
         updateTask(taskId, 'transcribing', 80, 'Transcribing and labeling speakers using Gemini AI...');
 
-        // Step 3: Call the model for transcription with fallback support
+        // Step 3: Call the model for transcription with comprehensive traversal support
         const genAI = new GoogleGenerativeAI(apiKey);
         
-        // Dynamically fetch supported models for this API Key
+        // Dynamically fetch ALL supported models for this API Key
         const userModels = await getAvailableModels(apiKey);
         const userModelIds = userModels.map(m => m.id);
 
-        // Build priority candidate list
+        // Build exhaustive priority candidate list
+        // 1. User's explicitly chosen model
+        // 2. High-performance stable audio models
+        // 3. All models reported by the user's API Key
+        // 4. Fallback Gemini model aliases
         const candidateModels = [
           modelName,
           'gemini-1.5-flash',
@@ -235,11 +239,18 @@ app.post('/api/transcribe', (req, res) => {
           'gemini-1.5-flash-8b',
           'gemini-1.5-pro',
           'gemini-2.0-flash-lite',
+          'gemini-2.0-pro-exp',
+          'gemini-flash-latest',
+          'gemini-pro-latest',
           ...userModelIds.filter(m => m.includes('flash')),
           ...userModelIds,
         ];
 
+        // Deduplicate while preserving attempt order
         const uniqueCandidates = [...new Set(candidateModels.filter(Boolean))];
+        const totalModelsCount = uniqueCandidates.length;
+
+        console.log(`Starting automated traversal across ${totalModelsCount} available model candidate(s):`, uniqueCandidates);
 
         let prompt = `You are an expert transcriber. Your task is to transcribe the provided audio recording in native Bangla.
 The audio consists of a conversation with exactly ${speakerCount} speakers.
@@ -281,7 +292,9 @@ Instructions:
           );
         }
 
-        for (const candidate of uniqueCandidates) {
+        for (let idx = 0; idx < uniqueCandidates.length; idx++) {
+          const candidate = uniqueCandidates[idx];
+          const modelNum = idx + 1;
           let modelAttempts = 0;
           const maxModelAttempts = 2;
           let candidateSuccess = false;
@@ -290,8 +303,9 @@ Instructions:
             modelAttempts++;
             try {
               const attemptLabel = modelAttempts > 1 ? ` (Retry ${modelAttempts}/${maxModelAttempts})` : '';
-              updateTask(taskId, 'transcribing', 80, `Transcribing with model (${candidate})${attemptLabel}...`);
-              console.log(`Attempting transcription with model: ${candidate} (Attempt ${modelAttempts})`);
+              const progressMsg = `[Model ${modelNum}/${totalModelsCount}] Transcribing with ${candidate}${attemptLabel}...`;
+              updateTask(taskId, 'transcribing', 80, progressMsg);
+              console.log(progressMsg);
 
               const model = genAI.getGenerativeModel({ 
                 model: candidate,
@@ -309,14 +323,15 @@ Instructions:
               ], { timeout: 600000 });
 
               if (result && result.response) {
-                console.log(`Successfully generated content using model: ${candidate}`);
+                console.log(`Successfully generated content using model [${modelNum}/${totalModelsCount}]: ${candidate}`);
                 candidateSuccess = true;
                 break;
               }
             } catch (err) {
-              console.error(`Model ${candidate} attempt ${modelAttempts} failed:`, err.message);
+              console.error(`Model [${modelNum}/${totalModelsCount}] (${candidate}) attempt ${modelAttempts} failed:`, err.message);
               lastError = err;
 
+              // Immediately throw on API key / auth permission errors
               if (isAuthError(err)) {
                 throw new Error(`Authentication Failed: ${err.message}. Please check your Gemini API Key.`);
               }
@@ -325,8 +340,8 @@ Instructions:
               const isTransient = errStr.includes('503') || errStr.includes('service unavailable') || errStr.includes('high demand') || errStr.includes('overloaded') || errStr.includes('500') || errStr.includes('502') || errStr.includes('504') || errStr.includes('429') || errStr.includes('resource_exhausted');
 
               if (isTransient && modelAttempts < maxModelAttempts) {
-                const backoffMs = modelAttempts * 3000;
-                updateTask(taskId, 'transcribing', 80, `Model (${candidate}) busy (503/High Demand). Retrying in ${backoffMs/1000}s...`);
+                const backoffMs = modelAttempts * 2000;
+                updateTask(taskId, 'transcribing', 80, `[Model ${modelNum}/${totalModelsCount}] ${candidate} busy (503/High Demand). Retrying in ${backoffMs/1000}s...`);
                 console.log(`Waiting ${backoffMs}ms before retrying ${candidate}...`);
                 await new Promise(r => setTimeout(r, backoffMs));
               } else {
@@ -339,11 +354,15 @@ Instructions:
             break;
           }
 
-          console.log(`Model ${candidate} failed. Retrying with next available model candidate...`);
+          const nextModel = uniqueCandidates[idx + 1];
+          if (nextModel) {
+            console.log(`Model ${candidate} failed (${lastError ? lastError.message : 'Unknown error'}). Moving to next model [${modelNum + 1}/${totalModelsCount}]: ${nextModel}...`);
+            updateTask(taskId, 'transcribing', 80, `Model ${candidate} unavailable. Traversing to next model (${nextModel})...`);
+          }
         }
 
         if (!result) {
-          throw lastError || new Error('All Gemini model candidates failed to transcribe.');
+          throw lastError || new Error(`All ${totalModelsCount} model candidates failed to transcribe.`);
         }
 
         const transcriptText = result.response.text();
